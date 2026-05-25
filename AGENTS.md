@@ -33,8 +33,7 @@
    ```bash
    python scripts/generate_from_data.py <厂站目录>/draft/<schema.py>   # 自动输出到同目录
    ```
-5. 字号统一为 9px，主标题 9px+粗体
-6. 最终文件交给用户，在 draw.io 打开并人工微调后导出 PDF
+5. 最终文件交给用户，在 draw.io 打开并人工微调后导出 PDF
 
 ### raw/ 目录处理规则
 
@@ -52,13 +51,54 @@
 
 ## 输出规范
 
+### 样式模式（默认）
+
+生成脚本默认使用**工程图样式模式**（黑白工程图纸风格），包含 A3 比例图框、标题栏、管线图例。
+
 | 项目 | 规范 |
 |------|------|
-| 页面尺寸 | 由内容自然展开自动计算，不强行压缩 |
-| 正文字号 | `fontSize=9` |
-| 主标题字号 | `fontSize=9; fontStyle=1`（粗体） |
-| 参数框背景 | `fillColor=#ffffff; strokeColor=#000000` |
+| 页面尺寸 | A3 横向比例（420:297 ≈ 1.414），内容自适应，不强行压缩 |
+| 正文字号 | `fontSize=12`，不加粗（`fontStyle=0`） |
+| 主标题字号 | `fontSize=12`，不加粗，黄色背景（`fillColor=#FFF2CC;strokeColor=#D6B656`） |
+| 线宽 | 统一 `strokeWidth=1`，所有边框黑色 `#000000` |
+| 池体/设备 | 白底黑框，`fillColor=#FFFFFF;strokeColor=#000000;rounded=4` |
+| 参数框 | 白底黑框，`fillColor=#FFFFFF;strokeColor=#000000;rounded=2`，只写药剂内容 |
+| 字体 | 不指定 `fontFamily`，使用 draw.io 默认（Helvetica / 中文回退） |
+| 图框 | A3 横向比例自适应，外框线宽 1pt，内框线宽 2pt，距外框 5mm |
+| 标题栏 | 右下角，180mm×32mm，4 行结构，灰底名称行/白底内容行 |
+| 图例 | 支流区域右侧，白底黑框，标题灰底，说明四种管线类型 |
 | 编码 | UTF-8，带 `<?xml version="1.0" encoding="UTF-8"?>` 声明 |
+
+### 管线样式（四种）
+
+| 类型 | 颜色 | 线型 | 箭头 | 识别规则 |
+|------|------|------|------|---------|
+| 主水管（main） | 黑色 `#000000` | 实线 | 单向 | 默认 |
+| 加药管（chemical） | 绿色 `#82B366` | 虚线 | 单向 | label 含"加药/药剂/投药" |
+| 污泥管（sludge） | 棕色 `#B85450` | 虚线 | 单向 | label 含"污泥/排泥" |
+| 回流管（recycle） | 紫色 `#9673A6` | 虚线 | 单向 | label 含"回流/循环" |
+
+### 标题栏 4 行结构
+
+```
+┌──────────┬──────────┬────────┬──────┬──────┐
+│ 公司     │ 项目     │ 图名   │ 图号 │ 日期 │  ← 第1行 灰底加粗
+├──────────┼──────────┼────────┼──────┼──────┤
+│ ××环保   │ 温州××   │ 废水处 │ ××-  │ 2026 │  ← 第2行 白底常规
+│ 科技     │ 厂站     │ 理工艺 │ 2026 │ .05  │
+├──────────┼──────────┼────────┼──────┼──────┤
+│ 编制     │ 审核     │ 比例   │ 设计 │ 页码 │  ← 第3行 灰底加粗
+├──────────┼──────────┼────────┼──────┼──────┤
+│ ×××      │ ×××      │ 按实   │ 施工 │ 1/1  │  ← 第4行 白底常规
+└──────────┴──────────┴────────┴──────┴──────┘
+  45mm      45mm       35mm    24mm   30mm
+```
+
+### 参数框文字规范
+
+- **去掉前缀**：不写"1池"、"2池"等格次前缀，只保留药剂内容
+- **写法要短**：优先"药剂名 + 核心控制值/作用"，例如 `石灰-pH=8.5~9`、`次钠-ORP`、`双氧水-100~200L/h`
+- **位置对齐**：参数框放在对应格次标签上方，通过水平对齐表明对应关系
 
 ---
 
@@ -71,9 +111,13 @@
    ├─ 支流纵向布局
    ├─ 综合区横向自由延伸（无蛇形折返）
    ├─ 生化区横向自由延伸
-   └─ 智能走线：支流→综合区从侧边引出，避免穿越
+   ├─ 智能走线：支流→综合区从侧边引出，避免穿越
+   ├─ A3 比例图框 + 标题栏（自动计算内容边界）
+   └─ 支流右侧管线图例
    ↓
 渲染器：DrawioRenderer（engine/renderer.py）
+   ├─ 样式模式：统一 12px、不加粗、1px 线宽、黑色边框
+   └─ 四种管线样式自动识别
    ↓
 输出：.drawio XML 文件
 ```
@@ -83,8 +127,8 @@
 | 文件 | 职责 |
 |------|------|
 | `engine/schema.py` | 领域模型：Stream、ReactionGroup、CombinedSection、BioSection 等 |
-| `engine/layout_engine.py` | 布局引擎：根据 Schema 计算所有节点坐标和连线路由 |
-| `engine/renderer.py` | XML 渲染器：将布局结果序列化为 draw.io XML |
+| `engine/layout_engine.py` | 布局引擎：计算节点坐标、连线路由、A3 图框、标题栏、图例 |
+| `engine/renderer.py` | XML 渲染器：样式模式渲染、管线样式、序列化为 draw.io XML |
 
 ### 使用方式
 
@@ -92,7 +136,8 @@
 from engine import LayoutEngine, DrawioRenderer
 from 厂站目录.schema文件 import plant_schema
 
-engine = LayoutEngine(plant_schema)
+# 默认使用样式模式（styled=True）
+engine = LayoutEngine(plant_schema, styled=True)
 result = engine.layout()
 
 renderer = DrawioRenderer(result.cells, result.page_w, result.page_h)
@@ -101,15 +146,20 @@ renderer.write("输出.drawio")
 
 ---
 
-## 样式常量
+## 样式常量（工程图样式模式）
 
 ```python
-BX  = "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;"           # 普通格子
-HDR = "rounded=0;whiteSpace=wrap;html=1;fontSize=9;fontStyle=1;align=center;" # 粗体主标题
-TNK = "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;" # 池/罐
-PRM = "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;fillColor=#ffffff;strokeColor=#000000;" # 参数框
-NOTE= "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;fillColor=#fff2cc;strokeColor=#d6b656;" # 黄色注释
-FLOW= "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" # 流程节点
+# 节点样式（统一 12px、不加粗、1px 黑色边框）
+TNK  = "rounded=4;whiteSpace=wrap;html=1;fontSize=12;align=center;fillColor=#FFFFFF;strokeColor=#000000;strokeWidth=1;fontStyle=0;"  # 池/罐
+PRM  = "rounded=2;whiteSpace=wrap;html=1;fontSize=12;align=center;fillColor=#FFFFFF;strokeColor=#000000;strokeWidth=1;fontStyle=0;"  # 参数框
+HDR  = "rounded=2;whiteSpace=wrap;html=1;fontSize=12;align=center;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=1;fontStyle=0;"  # 主标题
+NOTE = "rounded=2;whiteSpace=wrap;html=1;fontSize=12;align=center;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=1;fontStyle=0;"  # 注释
+
+# 管线样式
+EDGE_MAIN     = "strokeColor=#000000;strokeWidth=1;dashed=0;endArrow=classic;startArrow=none;"   # 主水管
+EDGE_CHEMICAL = "strokeColor=#82B366;strokeWidth=1;dashed=1;endArrow=classic;startArrow=none;"   # 加药管
+EDGE_SLUDGE   = "strokeColor=#B85450;strokeWidth=1;dashed=1;endArrow=classic;startArrow=none;"   # 污泥管
+EDGE_RECYCLE  = "strokeColor=#9673A6;strokeWidth=1;dashed=1;endArrow=classic;startArrow=none;"   # 回流管
 ```
 
 ---
@@ -159,21 +209,6 @@ FLOW= "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;fillColor=#dae8f
 
 ---
 
-## A4 缩放脚本（scripts/scale_to_a4.py）
-
-如需导出 A4 横向 PDF，先生成后运行缩放脚本：
-
-```bash
-python scripts/scale_to_a4.py <输入.drawio> <输出_A4横向.drawio>
-```
-
-脚本逻辑：
-1. 扫描所有 mxGeometry 找内容边界
-2. 计算 `fit_scale = min((1123-30)/content_w, (794-30)/content_h)`
-3. 若 `fit_scale >= MIN_SCALE(0.76)`，缩放内容并放入真实 A4 页面
-4. 若 `fit_scale < MIN_SCALE`，等比放大页面，保持 `1123:794` 比例，确保内容可读性
-5. 变换所有节点坐标、边折点坐标
-
 ---
 
 ## 目录结构
@@ -185,10 +220,11 @@ drawio/
 ├── engine/                            ← 核心布局引擎
 │   ├── __init__.py
 │   ├── schema.py                      ← 领域模型
-│   ├── layout_engine.py               ← 布局引擎
-│   └── renderer.py                    ← XML 渲染器
+│   ├── layout_engine.py               ← 布局引擎（含 A3 图框、标题栏、图例）
+│   └── renderer.py                    ← XML 渲染器（含样式模式、管线样式）
 ├── scripts/
-│   └── scale_to_a4.py                 ← 通用 A4 缩放工具
+│   ├── generate_from_data.py          ← 通用生成入口（默认样式模式）
+│   └── import_raw.py                  ← 自动解析 raw/ 目录
 └── {厂站名}/                          ← 每个厂站一个文件夹
     ├── raw/                           ← 原始输入文件放入此子目录
     │   ├── 工艺流程图.pdf / .svg
