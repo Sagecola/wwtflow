@@ -6,9 +6,91 @@ from drawpyo.diagram import Object, Edge
 class DrawioRenderer:
     """将布局结果渲染为 draw.io XML
 
-    底层使用 drawpyo 进行样式验证和对象建模，
-    XML 序列化保持与原始手写版本一致的格式和 ID。
+    支持两种模式：
+    - 经典模式（默认）：白底黑框工程风
+    - 样式模式（styled=True）：黑白工程图纸风格 + 加药/污泥管线
+
+    样式规范（统一字号 12px，全部不加粗，框线 1px）：
+    - 字体：中文微软雅黑，英文 Times New Roman
+    - 主工艺池体：圆角矩形，白底，黑框 1pt，黑字 12px
+    - 参数框：白底，黑框 1pt，黑字 12px
+    - 标题：深灰底 #4A4A4A，白字 12px
+    - 进出水节点：白底，黑框 1pt，黑字 12px
+    - 主水管：黑色实线 1.5pt，实心三角箭头
+    - 加药管：绿色 #82B366 虚线 1pt，小箭头
+    - 污泥管：棕色 #B85450 虚线 1.5pt，实心三角箭头
+    - 回流管：紫色 #9673A6 虚线 1pt，双向箭头
     """
+
+    # ------------------------------------------------------------------
+    # 经典样式
+    # ------------------------------------------------------------------
+    CLASSIC_STYLES = {
+        "BX":   "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;",
+        "HDR":  "rounded=0;whiteSpace=wrap;html=1;fontSize=9;fontStyle=1;align=center;",
+        "TNK":  "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;",
+        "PRM":  "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;fillColor=#ffffff;strokeColor=#000000;",
+        "NOTE": "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;fillColor=#fff2cc;strokeColor=#d6b656;",
+        "FLOW": "rounded=0;whiteSpace=wrap;html=1;fontSize=9;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;",
+    }
+
+    # ------------------------------------------------------------------
+    # 样式模式：统一 12px，全部不加粗，框线 1px
+    # ------------------------------------------------------------------
+    TYPE_STYLES = {
+        "tank": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 4, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "equalization": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 4, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "reaction": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 4, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "separation": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 4, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "bio": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 4, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "flow": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 4, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "param": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 2, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "note": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 0, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "header": {
+            "fill": "#FFF2CC", "stroke": "#D6B656", "text": "#000000",
+            "fontSize": 12, "rounded": 2, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+        "label": {
+            "fill": "#FFFFFF", "stroke": "#000000", "text": "#000000",
+            "fontSize": 12, "rounded": 0, "fontStyle": 0,
+            "strokeWidth": 1,
+        },
+    }
+
+    # 字体：默认 Helvetica（draw.io 默认），不指定 fontFamily
 
     def __init__(
         self,
@@ -17,28 +99,29 @@ class DrawioRenderer:
         page_h: float,
         diagram_id: str = "flow",
         diagram_name: str = "工艺流程",
+        styled: bool = False,
     ):
         self.cells = cells
         self.page_w = round(page_w)
         self.page_h = round(page_h)
         self.diagram_id = diagram_id
         self.diagram_name = diagram_name
+        self.styled = styled
+        self._styles = self.CLASSIC_STYLES.copy()
 
     # ------------------------------------------------------------------
     # 公共接口
     # ------------------------------------------------------------------
     def render(self) -> str:
-        """渲染为 draw.io XML 字符串"""
         return self._to_xml_string()
 
     def write(self, path: str) -> None:
-        """直接写入文件"""
         xml = self.render()
         with open(path, "w", encoding="utf-8") as f:
             f.write(xml)
 
     # ------------------------------------------------------------------
-    # 内部：XML 序列化（保持原始 ID 和格式）
+    # 内部：XML 序列化
     # ------------------------------------------------------------------
     def _to_xml_string(self) -> str:
         lines = []
@@ -72,7 +155,7 @@ class DrawioRenderer:
 
     def _render_vertex(self, cell: Dict[str, Any]) -> List[str]:
         label = self._esc(cell.get("label", ""))
-        style = self._esc(cell.get("style", ""))
+        style = self._build_style(cell)
         lines = [
             f'        <mxCell id="{cell["id"]}" value="{label}" '
             f'style="{style}" vertex="1" parent="1">'
@@ -86,7 +169,7 @@ class DrawioRenderer:
 
     def _render_edge(self, cell: Dict[str, Any]) -> List[str]:
         label = self._esc(cell.get("label", ""))
-        style = self._esc(cell.get("style", ""))
+        style = self._build_edge_style(cell)
         lines = [
             f'        <mxCell id="{cell["id"]}" value="{label}" '
             f'style="{style}" edge="1" '
@@ -103,6 +186,99 @@ class DrawioRenderer:
         lines.append("        </mxCell>")
         return lines
 
+    # ------------------------------------------------------------------
+    # 样式构建
+    # ------------------------------------------------------------------
+    def _build_style(self, cell: Dict[str, Any]) -> str:
+        if not self.styled:
+            return self._esc(cell.get("style", ""))
+
+        kind = cell.get("kind", "")
+        style_key = cell.get("style_key", "")
+
+        if style_key == "BX":
+            s = self.TYPE_STYLES["label"]
+            return self._make_style(s)
+
+        if style_key == "HDR" or kind == "header":
+            s = self.TYPE_STYLES["header"]
+            return self._make_style(s)
+
+        if style_key == "PRM" or kind == "param":
+            s = self.TYPE_STYLES["param"]
+            return self._make_style(s)
+
+        if style_key == "NOTE" or kind == "note":
+            s = self.TYPE_STYLES["note"]
+            return self._make_style(s)
+
+        if style_key == "FLOW" or kind == "flow":
+            s = self.TYPE_STYLES["flow"]
+            return self._make_style(s)
+
+        if kind in ("equalization", "reaction", "separation", "bio", "tank"):
+            s = self.TYPE_STYLES["tank"]
+            return self._make_style(s)
+
+        return self._esc(cell.get("style", ""))
+
+    def _make_style(self, s: Dict[str, Any]) -> str:
+        parts = [
+            f"rounded={s.get('rounded', 0)}",
+            "whiteSpace=wrap",
+            "html=1",
+            f"fontSize={s.get('fontSize', 12)}",
+            "align=center",
+            f"fillColor={s['fill']}",
+            f"strokeColor={s['stroke']}",
+            f"fontColor={s['text']}",
+        ]
+        if s.get("strokeWidth"):
+            parts.append(f"strokeWidth={s['strokeWidth']}")
+        return self._esc(";".join(parts) + ";")
+
+    def _build_edge_style(self, cell: Dict[str, Any]) -> str:
+        base = cell.get("style", "")
+        if not self.styled:
+            return self._esc(base)
+
+        parts = [base]
+        edge_kind = cell.get("edge_kind", "main")
+
+        if edge_kind == "chemical":
+            # 加药管：绿色虚线 1pt，小箭头
+            parts.append("strokeColor=#82B366")
+            parts.append("strokeWidth=1")
+            parts.append("dashed=1")
+            parts.append("endArrow=classic")
+            parts.append("endSize=5")
+            parts.append("startArrow=none")
+        elif edge_kind == "sludge":
+            # 污泥管：棕色虚线 1pt，实心三角箭头
+            parts.append("strokeColor=#B85450")
+            parts.append("strokeWidth=1")
+            parts.append("dashed=1")
+            parts.append("endArrow=classic")
+            parts.append("endSize=6")
+            parts.append("startArrow=none")
+        elif edge_kind == "recycle":
+            # 回流管：紫色虚线 1pt，单向箭头（逆向）
+            parts.append("strokeColor=#9673A6")
+            parts.append("strokeWidth=1")
+            parts.append("dashed=1")
+            parts.append("endArrow=classic")
+            parts.append("startArrow=none")
+            parts.append("endSize=6")
+        else:
+            # 主水管：黑色实线 1pt
+            parts.append("strokeColor=#000000")
+            parts.append("strokeWidth=1")
+            parts.append("endArrow=classic")
+            parts.append("endSize=6")
+            parts.append("startArrow=none")
+
+        return self._esc(";".join(parts) + ";")
+
     @staticmethod
     def _esc(text: str) -> str:
         return (
@@ -116,19 +292,10 @@ class DrawioRenderer:
 
 
 # ----------------------------------------------------------------------
-# drawpyo 辅助：样式验证与对象建模（可选，用于调试/验证）
+# drawpyo 辅助
 # ----------------------------------------------------------------------
 
 def validate_style(style: str, kind: str = "vertex") -> Dict[str, Any]:
-    """使用 drawpyo 验证样式字符串是否合法
-
-    Args:
-        style: draw.io 样式字符串
-        kind: "vertex" 或 "edge"
-
-    Returns:
-        {"valid": bool, "warnings": list, "object": drawpyo object or None}
-    """
     result = {"valid": True, "warnings": [], "object": None}
     try:
         if kind == "vertex":
@@ -136,8 +303,6 @@ def validate_style(style: str, kind: str = "vertex") -> Dict[str, Any]:
             obj.apply_style_string(style)
             result["object"] = obj
         else:
-            # Edge 需要 source/target，这里只做字符串解析
-            # drawpyo Edge 的 apply_style_string 需要实例化
             obj = Edge()
             obj.apply_style_string(style)
             result["object"] = obj

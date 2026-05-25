@@ -61,13 +61,14 @@ def main():
         base = re.sub(r"_schema$", "", base)
         out_path = os.path.join(schema_dir, f"{base}.drawio")
 
-    # 布局 + 渲染
-    engine = LayoutEngine(schema)
+    # 布局 + 渲染（样式模式：A3比例图框 + 工程图标题栏）
+    engine = LayoutEngine(schema, styled=True)
     result = engine.layout()
 
     renderer = DrawioRenderer(
         result.cells, result.page_w, result.page_h,
-        diagram_id=schema.name, diagram_name=f"{schema.name}工艺流程图"
+        diagram_id=schema.name, diagram_name=f"{schema.name}工艺流程图",
+        styled=True,
     )
     xml = renderer.render()
 
